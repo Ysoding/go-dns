@@ -7,8 +7,8 @@ import (
 )
 
 type BytePacketBuffer struct {
-	buf [512]byte
-	pos uint16
+	Buf [512]byte
+	Pos uint16
 }
 
 func NewBytePacketBuffer() *BytePacketBuffer {
@@ -16,30 +16,26 @@ func NewBytePacketBuffer() *BytePacketBuffer {
 }
 
 func (b *BytePacketBuffer) SetBuffer(buf []byte) {
-	copy(b.buf[:], buf)
-}
-
-func (b *BytePacketBuffer) Pos() uint16 {
-	return b.pos
+	copy(b.Buf[:], buf)
 }
 
 func (b *BytePacketBuffer) Step(steps uint16) error {
-	b.pos += steps
+	b.Pos += steps
 	return nil
 }
 
 func (b *BytePacketBuffer) Seek(pos uint16) error {
-	b.pos = pos
+	b.Pos = pos
 	return nil
 }
 
 func (b *BytePacketBuffer) Read() (byte, error) {
-	if b.pos >= 512 {
+	if b.Pos >= 512 {
 		return 0, errors.New("end of buffer")
 	}
 
-	r := b.buf[b.pos]
-	b.pos += 1
+	r := b.Buf[b.Pos]
+	b.Pos += 1
 	return r, nil
 }
 
@@ -47,7 +43,7 @@ func (b *BytePacketBuffer) Get(pos uint16) (byte, error) {
 	if pos >= 512 {
 		return 0, errors.New("end of buffer")
 	}
-	return b.buf[pos], nil
+	return b.Buf[pos], nil
 }
 
 func (b *BytePacketBuffer) GetRange(start, len uint16) ([]byte, error) {
@@ -55,7 +51,7 @@ func (b *BytePacketBuffer) GetRange(start, len uint16) ([]byte, error) {
 		return nil, errors.New("end of buffer")
 	}
 
-	return b.buf[start : start+len], nil
+	return b.Buf[start : start+len], nil
 }
 
 func (b *BytePacketBuffer) Read2Bytes() (uint16, error) {
@@ -97,7 +93,7 @@ func (b *BytePacketBuffer) Read4Bytes() (uint32, error) {
 //	www.google.com.
 func (b *BytePacketBuffer) ReadQName() (string, error) {
 	var sb strings.Builder
-	pos := b.pos
+	pos := b.Pos
 
 	jumped := false
 	maxJums := 5
@@ -166,4 +162,71 @@ func (b *BytePacketBuffer) ReadQName() (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+func (b *BytePacketBuffer) write(val byte) error {
+	if b.Pos >= 512 {
+		return errors.New("end of buffer")
+	}
+	b.Buf[b.Pos] = val
+	b.Pos += 1
+	return nil
+}
+
+func (b *BytePacketBuffer) Write1Byte(val uint8) error {
+	return b.write(val)
+}
+
+func (b *BytePacketBuffer) Write2Byte(val uint16) error {
+	err := b.write(uint8(val >> 8))
+	if err != nil {
+		return err
+	}
+	return b.write(uint8(val & 0xFF))
+}
+
+func (b *BytePacketBuffer) Write4Byte(val uint32) error {
+	err := b.write(uint8((val >> 24) & 0xFF))
+	if err != nil {
+		return err
+	}
+
+	err = b.write(uint8((val >> 16) & 0xFF))
+	if err != nil {
+		return err
+	}
+
+	err = b.write(uint8((val >> 8) & 0xFF))
+	if err != nil {
+		return err
+	}
+	return b.write(uint8(val & 0xFF))
+}
+
+func (b *BytePacketBuffer) WriteQName(qname string) error {
+	var err error
+	for _, label := range strings.Split(qname, ".") {
+		n := len(label)
+		if n > 0x3f {
+			return errors.New("signle label exceeds 63 characters of length")
+		}
+
+		err = b.Write1Byte(byte(n))
+		if err != nil {
+			return err
+		}
+
+		for _, b1 := range []byte(label) {
+			err = b.Write1Byte(b1)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = b.Write1Byte(byte(0))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
