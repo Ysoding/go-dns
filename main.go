@@ -10,16 +10,8 @@ import (
 )
 
 func main() {
-	data, err := os.ReadFile("google_response_packet.txt")
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-
-	buffer := dns.NewBytePacketBuffer()
-	buffer.SetBuffer(data)
-
 	qname := "google.com"
+	// qname := "www.yahoo.com"
 	qtype := dns.A
 
 	server := "8.8.8.8:53"
@@ -31,19 +23,11 @@ func main() {
 	}
 	defer socket.Close()
 
-	packet := dns.DnsPacket{
-		Header: dns.DnsHeader{
-			ID:               6666,
-			Questions:        1,
-			RecursionDesired: true,
-		},
-		Questions: []dns.DnsQuestion{
-			{
-				Name: qname,
-				Type: qtype,
-			},
-		},
-	}
+	packet := dns.NewDnsPacket()
+	packet.Header.ID = 6666
+	packet.Header.Questions = 1
+	packet.Header.RecursionDesired = true
+	packet.Questions = append(packet.Questions, dns.NewDnsQuestion(qname, qtype))
 
 	reqBuffer := dns.NewBytePacketBuffer()
 	err = packet.Write(reqBuffer)
@@ -58,21 +42,23 @@ func main() {
 		fmt.Println("Error resolving server address:", err)
 		os.Exit(1)
 	}
+
 	_, err = socket.WriteTo(reqBuffer.Buf[:reqBuffer.Pos], serverAddr)
 	if err != nil {
 		fmt.Println("Error sending DNS packet:", err)
 		os.Exit(1)
 	}
 
-	resBuffer := dns.NewBytePacketBuffer()
+	respBuffer := dns.NewBytePacketBuffer()
 	socket.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, _, err = socket.ReadFrom(resBuffer.Buf[:])
+
+	_, _, err = socket.ReadFrom(respBuffer.Buf[:])
 	if err != nil {
 		fmt.Println("Error receiving DNS response:", err)
 		os.Exit(1)
 	}
 
-	resPacket, err := dns.FromBuffer2DnsPacket(resBuffer)
+	resPacket, err := dns.FromBuffer2DnsPacket(respBuffer)
 	if err != nil {
 		fmt.Println("Error parsing DNS response:", err)
 		os.Exit(1)

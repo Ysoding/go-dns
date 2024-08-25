@@ -52,20 +52,26 @@ func (h *DnsHeader) Write(buffer *BytePacketBuffer) error {
 	if err != nil {
 		return err
 	}
+
 	flag := uint8(0)
 	if h.RecursionDesired {
 		flag |= 1
 	}
+
 	if h.TruncatedMessage {
 		flag |= (1 << 1)
 	}
+
 	if h.AuthoritativeAnswer {
 		flag |= (1 << 2)
 	}
+
 	flag |= (h.Opcode << 3)
+
 	if h.Response {
 		flag |= (1 << 7)
 	}
+
 	err = buffer.Write1Byte(flag)
 	if err != nil {
 		return err
@@ -73,15 +79,19 @@ func (h *DnsHeader) Write(buffer *BytePacketBuffer) error {
 
 	flag = uint8(0)
 	flag |= uint8(h.Rescode)
+
 	if h.CheckingDisabled {
 		flag |= (1 << 4)
 	}
+
 	if h.AuthedData {
 		flag |= (1 << 5)
 	}
+
 	if h.Z {
 		flag |= (1 << 6)
 	}
+
 	if h.RecursionAvailable {
 		flag |= (1 << 7)
 	}
@@ -164,20 +174,20 @@ func (h *DnsHeader) Read(buffer *BytePacketBuffer) error {
 }
 
 type DnsPacket struct {
-	Header      DnsHeader
-	Questions   []DnsQuestion
-	Answers     []DnsRecord
-	Authorities []DnsRecord
-	Resources   []DnsRecord
+	Header      *DnsHeader
+	Questions   []*DnsQuestion
+	Answers     []*DnsRecord
+	Authorities []*DnsRecord
+	Resources   []*DnsRecord
 }
 
 func NewDnsPacket() *DnsPacket {
 	return &DnsPacket{
-		Header:      DnsHeader{},
-		Questions:   []DnsQuestion{},
-		Answers:     []DnsRecord{},
-		Authorities: []DnsRecord{},
-		Resources:   []DnsRecord{},
+		Header:      &DnsHeader{},
+		Questions:   []*DnsQuestion{},
+		Answers:     []*DnsRecord{},
+		Authorities: []*DnsRecord{},
+		Resources:   []*DnsRecord{},
 	}
 }
 
@@ -237,7 +247,7 @@ func FromBuffer2DnsPacket(buffer *BytePacketBuffer) (*DnsPacket, error) {
 			return nil, err
 		}
 
-		packet.Questions = append(packet.Questions, *q)
+		packet.Questions = append(packet.Questions, q)
 	}
 
 	for i := 0; i < int(packet.Header.Answers); i++ {
@@ -245,7 +255,7 @@ func FromBuffer2DnsPacket(buffer *BytePacketBuffer) (*DnsPacket, error) {
 		if err != nil {
 			return nil, err
 		}
-		packet.Answers = append(packet.Answers, *record)
+		packet.Answers = append(packet.Answers, record)
 	}
 
 	for i := 0; i < int(packet.Header.AuthoritativeEntries); i++ {
@@ -253,7 +263,7 @@ func FromBuffer2DnsPacket(buffer *BytePacketBuffer) (*DnsPacket, error) {
 		if err != nil {
 			return nil, err
 		}
-		packet.Authorities = append(packet.Authorities, *record)
+		packet.Authorities = append(packet.Authorities, record)
 	}
 
 	for i := 0; i < int(packet.Header.ResourceEntries); i++ {
@@ -261,7 +271,7 @@ func FromBuffer2DnsPacket(buffer *BytePacketBuffer) (*DnsPacket, error) {
 		if err != nil {
 			return nil, err
 		}
-		packet.Resources = append(packet.Resources, *record)
+		packet.Resources = append(packet.Resources, record)
 	}
 
 	return packet, nil
@@ -348,8 +358,8 @@ type DnsRecord struct {
 	Addr    net.IP // Used for A
 }
 
-func NewUnknownDnsRecord(domain string, qtype, dataLen uint16, ttl uint32) DnsRecord {
-	return DnsRecord{
+func NewUnknownDnsRecord(domain string, qtype, dataLen uint16, ttl uint32) *DnsRecord {
+	return &DnsRecord{
 		Type:    UNKNOWN,
 		Domain:  domain,
 		QType:   qtype,
@@ -358,8 +368,8 @@ func NewUnknownDnsRecord(domain string, qtype, dataLen uint16, ttl uint32) DnsRe
 	}
 }
 
-func NewADnsRecord(domain string, addr net.IP, ttl uint32) DnsRecord {
-	return DnsRecord{
+func NewADnsRecord(domain string, addr net.IP, ttl uint32) *DnsRecord {
+	return &DnsRecord{
 		Type:   A,
 		Domain: domain,
 		Addr:   addr,
