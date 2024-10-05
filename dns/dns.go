@@ -412,10 +412,10 @@ func ReadDnsRecord(buffer *BytePacketBuffer) (*DnsRecord, error) {
 		}
 
 		addr := net.IPv4(
-			byte(rawAddr>>24),
-			byte(rawAddr>>16),
-			byte(rawAddr>>8),
-			byte(rawAddr),
+			byte((rawAddr>>24)&0xFF),
+			byte((rawAddr>>16)&0xFF),
+			byte((rawAddr>>8)&0xFF),
+			byte((rawAddr)&0xFF),
 		)
 
 		return &DnsRecord{
