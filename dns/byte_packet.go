@@ -19,6 +19,15 @@ func (b *BytePacketBuffer) SetBuffer(buf []byte) {
 	copy(b.Buf[:], buf)
 }
 
+func (b *BytePacketBuffer) Set(pos uint16, val byte) {
+	b.Buf[pos] = val
+}
+
+func (b *BytePacketBuffer) Set2Bytes(pos uint16, val uint16) {
+	b.Set(pos, byte(val>>8))
+	b.Set(pos+1, byte(val&0xFF))
+}
+
 func (b *BytePacketBuffer) Step(steps uint16) error {
 	b.Pos += steps
 	return nil

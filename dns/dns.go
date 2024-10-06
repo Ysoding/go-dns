@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -21,6 +22,10 @@ const (
 const (
 	UNKNOWN RecordType = iota
 	A
+	NS
+	CNAME
+	MX
+	AAAA
 )
 
 type DnsHeader struct {
@@ -294,10 +299,35 @@ func FromNum2ResultCode(num uint8) ResultCode {
 	}
 }
 
+func RecordTypeToNum(typ RecordType) uint16 {
+	switch typ {
+	case A:
+		return 1
+	case NS:
+		return 2
+	case CNAME:
+		return 5
+	case MX:
+		return 15
+	case AAAA:
+		return 28
+	default:
+		return 0
+	}
+}
+
 func FromNum2RecordType(num uint16) RecordType {
 	switch num {
 	case 1:
 		return A
+	case 2:
+		return NS
+	case 5:
+		return CNAME
+	case 15:
+		return MX
+	case 28:
+		return AAAA
 	default:
 		return UNKNOWN
 	}
@@ -350,12 +380,15 @@ func (dq *DnsQuestion) Read(buffer *BytePacketBuffer) error {
 }
 
 type DnsRecord struct {
-	Type    RecordType
-	Domain  string
-	QType   uint16 // Used for UNKNOWN
-	DataLen uint16 // Used for UNKNOWN
-	TTL     uint32
-	Addr    net.IP // Used for A
+	Type     RecordType
+	Domain   string
+	QType    uint16 // Used for UNKNOWN
+	DataLen  uint16 // Used for UNKNOWN
+	TTL      uint32
+	Addr     net.IP // Used for A/AAAA
+	Host     string // NS/CNAME
+	Priority uint16 // MX
+
 }
 
 func NewUnknownDnsRecord(domain string, qtype, dataLen uint16, ttl uint32) *DnsRecord {
@@ -371,6 +404,43 @@ func NewUnknownDnsRecord(domain string, qtype, dataLen uint16, ttl uint32) *DnsR
 func NewADnsRecord(domain string, addr net.IP, ttl uint32) *DnsRecord {
 	return &DnsRecord{
 		Type:   A,
+		Domain: domain,
+		Addr:   addr,
+		TTL:    ttl,
+	}
+}
+
+func NewNSDnsRecord(domain, host string, ttl uint32) *DnsRecord {
+	return &DnsRecord{
+		Type:   NS,
+		Domain: domain,
+		Host:   host,
+		TTL:    ttl,
+	}
+}
+
+func NewCNameDnsRecord(domain, host string, ttl uint32) *DnsRecord {
+	return &DnsRecord{
+		Type:   CNAME,
+		Domain: domain,
+		Host:   host,
+		TTL:    ttl,
+	}
+}
+
+func NewMXDnsRecord(domain, host string, priority uint16, ttl uint32) *DnsRecord {
+	return &DnsRecord{
+		Type:     MX,
+		Domain:   domain,
+		Host:     host,
+		Priority: priority,
+		TTL:      ttl,
+	}
+}
+
+func NewAAAADnsRecord(domain string, addr net.IP, ttl uint32) *DnsRecord {
+	return &DnsRecord{
+		Type:   AAAA,
 		Domain: domain,
 		Addr:   addr,
 		TTL:    ttl,
@@ -418,13 +488,67 @@ func ReadDnsRecord(buffer *BytePacketBuffer) (*DnsRecord, error) {
 			byte((rawAddr)&0xFF),
 		)
 
-		return &DnsRecord{
-			Type:   A,
-			Domain: domain,
-			TTL:    ttl,
-			Addr:   addr,
-		}, nil
+		return NewADnsRecord(domain, addr, ttl), nil
 
+	case AAAA:
+		raw_addr1, err := buffer.Read4Bytes()
+		if err != nil {
+			return nil, err
+		}
+		raw_addr2, err := buffer.Read4Bytes()
+		if err != nil {
+			return nil, err
+		}
+		raw_addr3, err := buffer.Read4Bytes()
+		if err != nil {
+			return nil, err
+		}
+		raw_addr4, err := buffer.Read4Bytes()
+		if err != nil {
+			return nil, err
+		}
+		addr := net.IP{
+			byte((raw_addr1 >> 24) & 0xFF),
+			byte((raw_addr1 >> 16) & 0xFF),
+			byte((raw_addr1 >> 8) & 0xFF),
+			byte((raw_addr1 >> 0) & 0xFF),
+			byte((raw_addr2 >> 24) & 0xFF),
+			byte((raw_addr2 >> 16) & 0xFF),
+			byte((raw_addr2 >> 8) & 0xFF),
+			byte((raw_addr2 >> 0) & 0xFF),
+			byte((raw_addr3 >> 24) & 0xFF),
+			byte((raw_addr3 >> 16) & 0xFF),
+			byte((raw_addr3 >> 8) & 0xFF),
+			byte((raw_addr3 >> 0) & 0xFF),
+			byte((raw_addr4 >> 24) & 0xFF),
+			byte((raw_addr4 >> 16) & 0xFF),
+			byte((raw_addr4 >> 8) & 0xFF),
+			byte((raw_addr4 >> 0) & 0xFF),
+		}
+
+		return NewAAAADnsRecord(domain, addr, ttl), nil
+	case NS:
+		ns, err := buffer.ReadQName()
+		if err != nil {
+			return nil, err
+		}
+		return NewNSDnsRecord(domain, ns, ttl), nil
+	case CNAME:
+		cname, err := buffer.ReadQName()
+		if err != nil {
+			return nil, err
+		}
+		return NewCNameDnsRecord(domain, cname, ttl), nil
+	case MX:
+		priority, err := buffer.Read2Bytes()
+		if err != nil {
+			return nil, err
+		}
+		mx, err := buffer.ReadQName()
+		if err != nil {
+			return nil, err
+		}
+		return NewMXDnsRecord(domain, mx, priority, ttl), nil
 	default:
 		if err := buffer.Step(uint16(dataLen)); err != nil {
 			return nil, err
@@ -449,7 +573,7 @@ func (d *DnsRecord) Write(buffer *BytePacketBuffer) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
-		err = buffer.Write2Byte(uint16(A))
+		err = buffer.Write2Byte(uint16(RecordTypeToNum(A)))
 		if err != nil {
 			return 0, err
 		}
@@ -487,6 +611,135 @@ func (d *DnsRecord) Write(buffer *BytePacketBuffer) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
+	case NS:
+		err := buffer.WriteQName(d.Domain)
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(RecordTypeToNum(NS)))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(1))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write4Byte(d.TTL)
+		if err != nil {
+			return 0, err
+		}
+		pos := buffer.Pos
+		err = buffer.Write2Byte(uint16(0))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.WriteQName(d.Host)
+		if err != nil {
+			return 0, err
+		}
+
+		size := buffer.Pos - (pos + 2)
+		buffer.Set2Bytes(pos, size)
+	case CNAME:
+		err := buffer.WriteQName(d.Domain)
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(RecordTypeToNum(CNAME)))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(1))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write4Byte(d.TTL)
+		if err != nil {
+			return 0, err
+		}
+		pos := buffer.Pos
+		err = buffer.Write2Byte(uint16(0))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.WriteQName(d.Host)
+		if err != nil {
+			return 0, err
+		}
+
+		size := buffer.Pos - (pos + 2)
+		buffer.Set2Bytes(pos, size)
+	case MX:
+		err := buffer.WriteQName(d.Domain)
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(RecordTypeToNum(MX)))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(1))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write4Byte(d.TTL)
+		if err != nil {
+			return 0, err
+		}
+		pos := buffer.Pos
+		err = buffer.Write2Byte(uint16(0))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(d.Priority)
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.WriteQName(d.Host)
+		if err != nil {
+			return 0, err
+		}
+
+		size := buffer.Pos - (pos + 2)
+		buffer.Set2Bytes(pos, size)
+	case AAAA:
+		err := buffer.WriteQName(d.Domain)
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(RecordTypeToNum(AAAA)))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write2Byte(uint16(1))
+		if err != nil {
+			return 0, err
+		}
+		err = buffer.Write4Byte(d.TTL)
+		if err != nil {
+			return 0, err
+		}
+		pos := buffer.Pos
+		err = buffer.Write2Byte(uint16(16))
+		if err != nil {
+			return 0, err
+		}
+
+		ip := d.Addr.To16()
+		if ip == nil {
+			return 0, fmt.Errorf("invalid IPv6 address")
+		}
+
+		for i := 0; i < len(ip); i += 2 {
+			segment := binary.BigEndian.Uint16(ip[i : i+2])
+			err = buffer.Write2Byte(segment)
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		size := buffer.Pos - (pos + 2)
+		buffer.Set2Bytes(pos, size)
 	case UNKNOWN:
 		fmt.Printf("Skipping record: %v\n", d)
 	}

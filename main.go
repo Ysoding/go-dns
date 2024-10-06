@@ -11,7 +11,6 @@ import (
 
 func main() {
 	qname := "google.com"
-	// qname := "www.yahoo.com"
 	qtype := dns.A
 
 	server := "8.8.8.8:53"
